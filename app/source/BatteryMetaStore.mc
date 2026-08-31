@@ -77,7 +77,8 @@ class BatteryMetaStore {
             "maxBackgroundDurationMs" => 0,
             "temperatureReadDurationMs" => 0,
             "syncAttemptCount" => 0,
-            "syncFailureCount" => 0
+            "syncFailureCount" => 0,
+            "syncRequestedPending" => false
         };
     }
 
@@ -96,6 +97,10 @@ class BatteryMetaStore {
                 meta.put(key, 0);
                 changed = true;
             }
+        }
+        if (meta.get("syncRequestedPending") == null) {
+            meta.put("syncRequestedPending", false);
+            changed = true;
         }
         return changed;
     }
@@ -200,5 +205,17 @@ class BatteryMetaStore {
         meta.put("syncState", $.SYNC_STATE_ERROR);
         save(meta);
         System.println("BatterySync error " + code);
+    }
+
+    public function isSyncRequestedPending() as Boolean {
+        var meta = ensure();
+        var value = meta.get("syncRequestedPending");
+        return value instanceof Boolean && value;
+    }
+
+    public function setSyncRequestedPending(value as Boolean) as Boolean {
+        var meta = ensure();
+        meta.put("syncRequestedPending", value);
+        return save(meta);
     }
 }

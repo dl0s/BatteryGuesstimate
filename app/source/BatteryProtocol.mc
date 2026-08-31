@@ -60,19 +60,24 @@ class BatteryProtocol {
         return decodeControl(payload, $.TYPE_SYNC_REQUEST);
     }
 
-    // [7, version, installId]
+    // [7, version] anonymous first discovery.
+    // [7, version, installId] identified descriptor request.
     public function decodeDescriptorRequest(payload) as Dictionary {
-        if (!(payload instanceof Array) || payload.size() != 3
+        if (!(payload instanceof Array)
+            || (payload.size() != 2 && payload.size() != 3)
             || payload[0] != $.TYPE_DESCRIPTOR_REQUEST) {
             return {"ok" => false, "error" => $.ERROR_INVALID_ACK};
         }
         if (payload[1] != $.BATTERY_PROTOCOL_VERSION) {
             return {"ok" => false, "error" => $.ERROR_PROTOCOL_MISMATCH};
         }
-        if (!(payload[2] instanceof String)) {
-            return {"ok" => false, "error" => $.ERROR_INSTALL_ID_MISMATCH};
+        if (payload.size() == 3) {
+            if (!(payload[2] instanceof String)) {
+                return {"ok" => false, "error" => $.ERROR_INSTALL_ID_MISMATCH};
+            }
+            return {"ok" => true, "installId" => payload[2]};
         }
-        return {"ok" => true, "installId" => payload[2]};
+        return {"ok" => true, "installId" => null};
     }
 
     // [6, version, installId, descriptorArray]

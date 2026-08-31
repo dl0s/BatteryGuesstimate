@@ -12,7 +12,7 @@ class BatteryAckHandler {
         _protocol = new BatteryProtocol();
     }
 
-    private function validateAndApply(decoded) as Boolean {
+    private function validateInstallId(decoded) as Boolean {
         if (!decoded.get("ok")) {
             _store.recordError(decoded.get("error"));
             return false;
@@ -23,7 +23,16 @@ class BatteryAckHandler {
             _store.recordError($.ERROR_INSTALL_ID_MISMATCH);
             return false;
         }
-        var applied = _store.applyAck(decoded.get("ackedSeq"));
+        return true;
+    }
+
+    private function validateAndApply(decoded, syncRequest as Boolean) as Boolean {
+        if (!validateInstallId(decoded)) {
+            return false;
+        }
+        var applied = syncRequest
+            ? _store.applySyncRequest(decoded.get("ackedSeq"))
+            : _store.applyAck(decoded.get("ackedSeq"));
         if (applied) {
             new BatteryGlanceSummaryStore().updateSyncFromMeta(_store.getMeta());
         }
@@ -37,10 +46,10 @@ class BatteryAckHandler {
             return false;
         }
         if (payload[0] == $.TYPE_ACK) {
-            return validateAndApply(_protocol.decodeAck(payload));
+            return validateAndApply(_protocol.decodeAck(payload), false);
         }
         if (payload[0] == $.TYPE_SYNC_REQUEST) {
-            return validateAndApply(_protocol.decodeSyncRequest(payload));
+            return validateAndApply(_protocol.decodeSyncRequest(payload), true);
         }
         if (payload[0] == $.TYPE_DESCRIPTOR_REQUEST) {
             var decoded = _protocol.decodeDescriptorRequest(payload);
@@ -48,7 +57,11 @@ class BatteryAckHandler {
                 _store.recordError(decoded.get("error"));
                 return false;
             }
-            if (!(decoded.get("installId") as String).equals(_store.getInstallId())) {
+            var requestInstallId = decoded.get("installId");
+            if (requestInstallId != null
+                && !(requestInstallId as String).equals(_store.getInstallId())) {
+                System.println("BatterySync install mismatch expected="
+                    + _store.getInstallId() + " received=" + requestInstallId);
                 _store.recordError($.ERROR_INSTALL_ID_MISMATCH);
                 return false;
             }

@@ -71,8 +71,9 @@ class BatteryServiceDelegate extends System.ServiceDelegate {
             if (completed) {
                 var phoneConnected = (sample.connectionFlags
                     & $.CONNECTION_PHONE_CONNECTED) != 0;
+                var syncImmediate = store.isSyncRequestedPending();
                 new BatterySyncManager().syncAt(
-                    false,
+                    syncImmediate,
                     sample.batteryPct100,
                     sample.charging,
                     phoneConnected,

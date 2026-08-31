@@ -80,12 +80,18 @@ is never interpreted as ACK.
 
 ## SYNC_REQUEST
 
-`[3, 1, installId, highestContinuouslyCommittedSeq]`
+`[3, 1, installId, highestContiguousAccountedSeq]`
 
 The fourth value carries the same durability claim as ACK and requests the next
 batch. If it is below Garmin's persisted `ackedSeq`, Garmin does not regress and
 responds with STATUS. If it is valid and equal/higher, Garmin applies it and may
 send one next batch.
+
+When the request accounts for every current local record (`pending == 0`),
+Garmin persists `syncRequestedPending = true`. The next authoritative 15-minute
+sample then triggers an immediate transport attempt. The latch is cleared when
+that transport attempt begins, so a failed attempt falls back to the normal
+retry backoff instead of retrying every 15 minutes.
 
 ## STATUS
 
@@ -154,13 +160,18 @@ Additional final-candidate temperature flag bits are:
 
 ## DEVICE_DESCRIPTOR and request
 
-The iPhone may send `[7, 1, installId]`. Garmin responds with
-`[6, 1, installId, descriptor]`, where `descriptor` is the persisted compact
-`DeviceDescriptorV1` array containing install identity, part number, Monkey C
-runtime version, app version, protocol version, activity-tracking setting, and
-firmware pair. Descriptor transport is informational and does not advance the
-sample ACK. The watch rewrites the descriptor only on first creation, app or
-firmware/device metadata change, or an explicit request that finds it absent.
+The iPhone sends `[7, 1]` for anonymous first discovery. Garmin must accept it
+without an `installId` and respond with the authoritative
+`[6, 1, installId, descriptor]`. The iPhone may also send
+`[7, 1, installId]` for an identified descriptor request; Garmin validates the
+identity before responding. A wrong protocol version is always rejected.
+
+`descriptor` is the persisted compact `DeviceDescriptorV1` array containing
+install identity, part number, Monkey C runtime version, app version, protocol
+version, activity-tracking setting, and firmware pair. Descriptor transport is
+informational and does not advance the sample ACK. The watch rewrites the
+descriptor only on first creation, app or firmware/device metadata change, or
+an explicit request that finds it absent.
 
 ## Identity and sequence rules
 

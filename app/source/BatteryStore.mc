@@ -239,6 +239,26 @@ class BatteryStore {
         return _metaStore.save(meta);
     }
 
+    // A SYNC_REQUEST carries the phone's durable accounted cursor. When it
+    // accounts for every current record, arm the next-sample latch so a fresh
+    // battery sample is pushed immediately instead of waiting for the normal
+    // 8-sample threshold.
+    public function applySyncRequest(accountedSeq as Number) as Boolean {
+        var applied = applyAck(accountedSeq);
+        if (applied && getPendingCount() == 0) {
+            return _metaStore.setSyncRequestedPending(true);
+        }
+        return applied;
+    }
+
+    public function isSyncRequestedPending() as Boolean {
+        return _metaStore.isSyncRequestedPending();
+    }
+
+    public function consumeSyncRequestedPending() as Boolean {
+        return _metaStore.setSyncRequestedPending(false);
+    }
+
     public function saveMeta(meta as Dictionary) as Boolean {
         return _metaStore.save(meta);
     }

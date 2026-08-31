@@ -14,6 +14,11 @@ class BatterySyncManager {
         _transport = new BatteryTransport();
     }
 
+    // Test seam. Production callers use the default Communications transport.
+    public function setTransport(transport) as Void {
+        _transport = transport;
+    }
+
     public function stateName(state) as String {
         switch (state) {
             case $.SYNC_STATE_PENDING:
@@ -157,6 +162,9 @@ class BatterySyncManager {
         meta.put("inFlightToSeq", toSeq);
         meta.put("syncState", $.SYNC_STATE_SENDING);
         meta.put("syncAttemptCount", (meta.get("syncAttemptCount") as Number) + 1);
+        if (meta.get("syncRequestedPending") == true) {
+            meta.put("syncRequestedPending", false);
+        }
         if (!_store.saveMeta(meta)) {
             return false;
         }

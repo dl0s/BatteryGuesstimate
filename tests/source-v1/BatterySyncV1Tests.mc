@@ -33,6 +33,30 @@ function assertNumber(actual, expected, message as String) as Void {
     Test.assertEqualMessage(actual as Number, expected as Number, message);
 }
 
+class CaptureBatteryTransport extends BatteryTransport {
+    public var lastPayload;
+
+    public function initialize() {
+        BatteryTransport.initialize();
+        lastPayload = null;
+    }
+
+    public function send(payload, manager, requiresDurableAck) as Boolean {
+        lastPayload = payload;
+        return true;
+    }
+}
+
+class FailBatteryTransport extends BatteryTransport {
+    public function initialize() {
+        BatteryTransport.initialize();
+    }
+
+    public function send(payload, manager, requiresDurableAck) as Boolean {
+        return false;
+    }
+}
+
 (:test)
 function storageFirstInstall(logger as Test.Logger) as Boolean {
     Storage.clearValues();
@@ -475,6 +499,138 @@ function protocolControlMessages(logger as Test.Logger) as Boolean {
     var descriptorPayload = protocol.buildDeviceDescriptor(id, [1, id, "part"]);
     assertNumber(descriptorPayload[0], $.TYPE_DEVICE_DESCRIPTOR, "descriptor response type");
     Test.assertEqualMessage(descriptorPayload[3][2], "part", "descriptor payload");
+    return true;
+}
+
+(:test)
+function protocolGoldenFixtures(logger as Test.Logger) as Boolean {
+    Storage.clearValues();
+    var store = appendTestSamples(3);
+    var id = store.getInstallId();
+    var protocol = new BatteryProtocol();
+
+    var batch = protocol.buildSampleBatch(id, store.getPendingBatch(16));
+    assertNumber(batch[0], $.TYPE_SAMPLE_BATCH, "golden batch type");
+    assertNumber(batch[1], 1, "golden batch version");
+    Test.assertEqualMessage(batch[2], id, "golden batch installId");
+    assertNumber(batch[3], 1, "golden batch first");
+    assertNumber(batch[4], 3, "golden batch last");
+    Test.assertEqualMessage(batch[5][0].size(), 13, "golden sample row count");
+
+    var ack = protocol.decodeAck([$.TYPE_ACK, 1, id, 128]);
+    Test.assertMessage(ack.get("ok") == true, "golden ACK accepted");
+    assertNumber(ack.get("ackedSeq"), 128, "golden ACK sequence");
+
+    var sync = protocol.decodeSyncRequest([$.TYPE_SYNC_REQUEST, 1, id, 128]);
+    Test.assertMessage(sync.get("ok") == true, "golden SYNC_REQUEST accepted");
+    assertNumber(sync.get("ackedSeq"), 128, "golden SYNC_REQUEST sequence");
+
+    var statusMeta = store.getMeta();
+    statusMeta.put("ackedSeq", 100);
+    statusMeta.put("oldestSeq", 101);
+    statusMeta.put("newestSeq", 136);
+    statusMeta.put("syncState", 1);
+    statusMeta.put("lastErrorCode", 0);
+    var status = protocol.buildStatus(id, statusMeta, 36);
+    Test.assertEqualMessage(status.size(), 9, "golden STATUS field count");
+
+    var lossMeta = store.getMeta();
+    lossMeta.put("lastDataLossFromSeq", 101);
+    lossMeta.put("lastDataLossToSeq", 120);
+    lossMeta.put("oldestSeq", 121);
+    lossMeta.put("newestSeq", 136);
+    var loss = protocol.buildDataLoss(id, lossMeta);
+    Test.assertEqualMessage(loss.size(), 7, "golden DATA_LOSS field count");
+    assertNumber(loss[3], 101, "golden loss start");
+    assertNumber(loss[4], 120, "golden loss end");
+    assertNumber(loss[5], 121, "golden loss oldest");
+    assertNumber(loss[6], 136, "golden loss newest");
+
+    var descriptor = protocol.buildDeviceDescriptor(id, [1, id, "006-B1234-00", 7, 4, 1, 1, 1, 1, 21, 0]);
+    Test.assertEqualMessage(descriptor.size(), 4, "golden DEVICE_DESCRIPTOR field count");
+    assertNumber(descriptor[0], $.TYPE_DEVICE_DESCRIPTOR, "golden descriptor type");
+    Test.assertEqualMessage(descriptor[2], id, "golden descriptor installId");
+
+    var anonymous = protocol.decodeDescriptorRequest([$.TYPE_DESCRIPTOR_REQUEST, 1]);
+    Test.assertMessage(anonymous.get("ok") == true, "golden anonymous DESCRIPTOR_REQUEST accepted");
+    Test.assertMessage(anonymous.get("installId") == null, "golden anonymous request has no installId");
+    var identified = protocol.decodeDescriptorRequest([$.TYPE_DESCRIPTOR_REQUEST, 1, id]);
+    Test.assertMessage(identified.get("ok") == true, "golden identified DESCRIPTOR_REQUEST accepted");
+    Test.assertEqualMessage(identified.get("installId"), id, "golden identified installId");
+    return true;
+}
+
+(:test)
+function descriptorHandshakeRules(logger as Test.Logger) as Boolean {
+    Storage.clearValues();
+    var store = new BatteryStore();
+    var id = store.getInstallId();
+    var protocol = new BatteryProtocol();
+
+    Test.assertMessage(
+        protocol.decodeDescriptorRequest([$.TYPE_DESCRIPTOR_REQUEST, 1]).get("ok") == true,
+        "anonymous discovery accepted"
+    );
+    Test.assertMessage(
+        protocol.decodeDescriptorRequest([$.TYPE_DESCRIPTOR_REQUEST, 2]).get("ok") == false,
+        "wrong descriptor protocol rejected"
+    );
+    Test.assertMessage(
+        protocol.decodeDescriptorRequest([$.TYPE_DESCRIPTOR_REQUEST]).get("ok") == false,
+        "too short descriptor request rejected"
+    );
+    Test.assertMessage(
+        protocol.decodeDescriptorRequest([$.TYPE_DESCRIPTOR_REQUEST, 1, id]).get("ok") == true,
+        "identified descriptor request accepted"
+    );
+
+    var manager = new BatterySyncManager();
+    var capture = new CaptureBatteryTransport();
+    manager.setTransport(capture);
+    Test.assertMessage(manager.sendDeviceDescriptor(), "descriptor transmit accepted");
+    var payload = capture.lastPayload;
+    assertNumber(payload[0], $.TYPE_DEVICE_DESCRIPTOR, "descriptor response type");
+    Test.assertEqualMessage(payload[2], id, "descriptor response installId is authoritative");
+    Test.assertMessage(payload[3] instanceof Array, "descriptor payload is an array");
+    return true;
+}
+
+(:test)
+function syncRequestArmsLatchWhenNoPendingSamples(logger as Test.Logger) as Boolean {
+    Storage.clearValues();
+    var store = new BatteryStore();
+    Test.assertMessage(store.applySyncRequest(0), "empty accounted sync request applied");
+    Test.assertMessage(store.isSyncRequestedPending(), "latch armed with zero pending");
+    Test.assertMessage(store.appendSample(testSample(5000)), "first authoritative sample appended");
+    Test.assertMessage(
+        new BatterySyncManager().shouldSyncAt(true, 5000, false, false, 20000),
+        "next sample is immediately sync eligible"
+    );
+    return true;
+}
+
+(:test)
+function syncRequestLatchSurvivesRestartAndIsConsumedByAttempt(logger as Test.Logger) as Boolean {
+    Storage.clearValues();
+    var store = new BatteryStore();
+    Test.assertMessage(store.applySyncRequest(0), "arm latch");
+    var restarted = new BatteryStore();
+    Test.assertMessage(restarted.isSyncRequestedPending(), "latch survives watch restart");
+    Test.assertMessage(restarted.appendSample(testSample(5001)), "next sample appended after restart");
+
+    var manager = new BatterySyncManager();
+    manager.setTransport(new FailBatteryTransport());
+    Test.assertMessage(
+        !manager.syncAt(true, 5001, false, true, 30000),
+        "failed transport attempt reports failure"
+    );
+    var meta = new BatteryStore().getMeta();
+    Test.assertMessage(meta.get("syncRequestedPending") == false, "latch consumed by transport attempt");
+    assertNumber(meta.get("syncState"), $.SYNC_STATE_ERROR, "failure enters error state");
+    Test.assertMessage(
+        !manager.shouldSyncAt(false, 5001, false, true, 30000 + $.SYNC_RETRY_BACKOFF_SECONDS - 1),
+        "failed latch attempt falls back to normal retry backoff"
+    );
     return true;
 }
 
