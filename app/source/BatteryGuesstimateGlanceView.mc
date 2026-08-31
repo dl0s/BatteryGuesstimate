@@ -1,61 +1,60 @@
-using Toybox.WatchUi;
-using Toybox.Graphics as Gfx;
-using Toybox.System;
-using Toybox.Application.Properties;
+import Toybox.Graphics;
 import Toybox.Lang;
+import Toybox.WatchUi;
 
+// Glance is a strict one-read projection. It never constructs BatteryStore,
+// scans pages/history, migrates, recovers, computes trends, or starts sync.
 (:glance)
 class BatteryGuesstimateGlanceView extends WatchUi.GlanceView {
-
-  var _heading as String = "BATT GUESSTIMATE";
-
-  function initialize() {
-    GlanceView.initialize();
-  }
-
-
-  function onUpdate(dc) {
-    dc.setColor(Gfx.COLOR_WHITE, Gfx.COLOR_BLACK);
-    var deviceSpecificView = new DeviceGlanceView(dc);
-    deviceSpecificView.drawHeading(_heading);
-    var timeFrameStepsToShow  = 0;
-    var batteryChange;
-    var guesstimate;
-    var minutes = 0;
-    var timeString;
-    for (var i=0; i<2; i++) {
-      try {
-        timeFrameStepsToShow = Properties.getValue("glance-timeframe-" + i) as Integer;
-         // getValue might still return a String
-         // see https://forums.garmin.com/developer/connect-iq/f/discussion/327089/unhandled-exception-in-a-simple-if-statement/1587695#1587695
-        timeFrameStepsToShow = timeFrameStepsToShow.toNumber();
-        if (timeFrameStepsToShow == null) { // happens if the string is not convertable to number, what really should not happen for us
-          timeFrameStepsToShow = i+1;
-        }
-      } catch (e) {
-        // key does not exist, set it to 15 / 30 min
-        timeFrameStepsToShow = i+1;
-      }
-
-      batteryChange = $.getBattChangeInPercent(timeFrameStepsToShow);
-      if (batteryChange == null) {
-        batteryChange = 0.0;
-      }
-      minutes = timeFrameStepsToShow * 15;
-      timeString = $.timePeriodFormat(minutes, false);
-      guesstimate = $.guesstimate(batteryChange, minutes);
-      if (deviceSpecificView has :drawDetails) {
-        deviceSpecificView.drawDetails(i+1, timeString, $.formatOutput(batteryChange), $.guesstimateFormat(guesstimate));
-      } else {
-        var textHeight = dc.getTextDimensions("test", Graphics.FONT_XTINY)[1];
-        dc.drawText(
-          0,
-          (i+1)*textHeight,
-          Graphics.FONT_XTINY,
-          timeString + ":" + $.formatOutput(batteryChange) + " -> " + $.guesstimateFormat(guesstimate),
-          Graphics.TEXT_JUSTIFY_LEFT
-        );
-      }
+    public function initialize() {
+        WatchUi.GlanceView.initialize();
     }
-  }
+
+    private function daysText(summary as BatteryGlanceSummaryV1) as String {
+        if (summary.batteryInDays100 == $.BATTERY_DAYS_UNKNOWN) {
+            return "--";
+        }
+        return (summary.batteryInDays100 / 100.0).format("%.1f") + " d";
+    }
+
+    private function temperatureText(summary as BatteryGlanceSummaryV1) as String {
+        if ((summary.flags & $.FLAG_TEMP_UNKNOWN) != 0) {
+            return "--";
+        }
+        var suffix = (summary.flags & $.FLAG_TEMP_STALE) != 0 ? " C*" : " C";
+        return (summary.temperatureDeciC / 10.0).format("%.1f") + suffix;
+    }
+
+    private function syncText(summary as BatteryGlanceSummaryV1) as String {
+        if (summary.syncState == $.SYNC_STATE_ERROR) {
+            return "!";
+        }
+        if (summary.pendingCount > 0) {
+            return "... " + summary.pendingCount;
+        }
+        return "OK";
+    }
+
+    public function onUpdate(dc) {
+        // This is the sole Glance storage read.
+        var summary = new BatteryGlanceSummaryStore().load();
+        dc.setColor(Graphics.COLOR_WHITE, Graphics.COLOR_BLACK);
+        dc.clear();
+        if (summary == null) {
+            dc.drawText(0, 0, Graphics.FONT_XTINY, "BATTERY --",
+                Graphics.TEXT_JUSTIFY_LEFT);
+            return;
+        }
+        var rows = [
+            "BATTERY  " + (summary.latestBatteryPct100 / 100.0).format("%.0f") + "%",
+            "EST.     " + daysText(summary),
+            "TEMP.    " + temperatureText(summary),
+            "SYNC     " + syncText(summary)
+        ];
+        var lineHeight = dc.getHeight() / rows.size();
+        for (var i = 0; i < rows.size(); i += 1) {
+            dc.drawText(0, i * lineHeight, Graphics.FONT_XTINY,
+                rows[i], Graphics.TEXT_JUSTIFY_LEFT);
+        }
+    }
 }

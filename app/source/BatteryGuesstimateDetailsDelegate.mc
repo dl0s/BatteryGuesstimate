@@ -57,7 +57,7 @@ class BatteryGuesstimateDetailsDelegate extends WatchUi.BehaviorDelegate {
         return true;
     }
     private function setMessage() as Void {
-        var minutes = _stepsOfHistory * 15;
+        var minutes = _stepsOfHistory * $.SAMPLE_INTERVAL_MINUTES;
         var batteryChange = $.getBattChangeInPercent(_stepsOfHistory);
         if (batteryChange == null) {
             batteryChange = 0.0;

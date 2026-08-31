@@ -6,44 +6,28 @@ import Toybox.Math;
 import Toybox.System;
 import Toybox.Time;
 
-// UI compatibility constants. Storage internals no longer use circular slots.
-const MAX_STEPS_TO_CALC = 24 * 4 * 14;
-const SIZE_CIRCULAR_BUFFER = MAX_STEPS_TO_CALC + 1;
-const MINUTES_IN_ONE_DAY = 1440;
-
+// Final Lightweight RC entry. Garmin is only a battery telemetry node:
+// sample, durable append, reliable sync, and compact summary projection.
 (:background :glance :typecheck([disableBackgroundCheck, disableGlanceCheck]))
-class BatteryGuesstimateApp extends Application.AppBase {
+class BatteryApp extends Application.AppBase {
     public function initialize() {
-        AppBase.initialize();
+        Application.AppBase.initialize();
         try {
-            Background.registerForTemporalEvent(new Time.Duration($.SAMPLE_INTERVAL_SECONDS));
+            Background.registerForTemporalEvent(
+                new Time.Duration($.SAMPLE_INTERVAL_SECONDS)
+            );
             if (Background has :registerForPhoneAppMessageEvent) {
                 Background.registerForPhoneAppMessageEvent();
             }
         } catch (e) {
-            System.println("BatterySync background registration error " + e.getErrorMessage());
+            System.println("BatterySync background registration error");
         }
     }
 
     public function onStart(state as Dictionary?) as Void {
-        if (Communications has :registerForPhoneAppMessages) {
-            Communications.registerForPhoneAppMessages(method(:onPhoneAppMessage));
-        }
     }
 
     public function onStop(state as Dictionary?) as Void {
-    }
-
-    public function onPhoneAppMessage(message as Communications.PhoneAppMessage) as Void {
-        var handler = new BatteryAckHandler();
-        var accepted = handler.handle(message.data);
-        var manager = new BatterySyncManager();
-        if (accepted && !handler.wasDescriptorRequest()) {
-            var stats = System.getSystemStats();
-            manager.sync(true, Math.round(stats.battery * 100.0).toNumber(), stats.charging);
-        } else {
-            manager.sendStatus();
-        }
     }
 
     public function getGlanceView() {
@@ -55,11 +39,12 @@ class BatteryGuesstimateApp extends Application.AppBase {
     }
 
     public function getServiceDelegate() {
-        return [new $.MyServiceDelegate()];
+        return [new $.BatteryServiceDelegate()];
     }
 }
+
 (:background)
-class MyServiceDelegate extends System.ServiceDelegate {
+class BatteryServiceDelegate extends System.ServiceDelegate {
     (:background_method)
     public function initialize() {
         System.ServiceDelegate.initialize();
@@ -112,7 +97,9 @@ class MyServiceDelegate extends System.ServiceDelegate {
     }
 
     (:background_method)
-    public function onPhoneAppMessage(message as Communications.PhoneAppMessage) as Void {
+    public function onPhoneAppMessage(
+        message as Communications.PhoneAppMessage
+    ) as Void {
         var accepted = false;
         try {
             var handler = new BatteryAckHandler();
@@ -125,67 +112,13 @@ class MyServiceDelegate extends System.ServiceDelegate {
                     Math.round(stats.battery * 100.0).toNumber(),
                     stats.charging
                 );
-            } else {
+            } else if (!accepted) {
                 manager.sendStatus();
             }
         } catch (e) {
-            System.println("BatterySync background phone error " + e.getErrorMessage());
+            System.println("BatterySync background phone error");
             new BatteryMetaStore().recordError($.ERROR_INVALID_ACK);
         }
         Background.exit(accepted);
     }
-}
-
-public function getBattChangeInPercent(stepsOfHistory as Integer) as Float? {
-    if (stepsOfHistory > $.MAX_STEPS_TO_CALC || stepsOfHistory < 1) {
-        return null;
-    }
-    var store = new BatteryStore();
-    var latest = store.getBatteryAt(0);
-    var earlier = store.getBatteryAt(stepsOfHistory);
-    if (latest == null || earlier == null) {
-        return null;
-    }
-    return latest - earlier;
-}
-
-public function formatOutput(batteryChangeInPercent as Float?) as String {
-    if (batteryChangeInPercent == null) {
-        return "no data";
-    }
-    return batteryChangeInPercent.format("%+0.2f") + "%";
-}
-
-public function guesstimate(percentChange as Float?, minutes as Integer) as Integer? {
-    if (percentChange == null || percentChange >= 0) {
-        return null;
-    }
-    percentChange = percentChange * -1;
-    return (System.getSystemStats().battery / percentChange * minutes).toNumber();
-}
-
-public function guesstimateFormat(minutes as Integer?) as String {
-    if (minutes == null) {
-        return "-";
-    }
-    if (minutes < 60) {
-        return minutes + "m";
-    } else if (minutes < $.MINUTES_IN_ONE_DAY * 3) {
-        return Math.floor(minutes / 60) + "h";
-    }
-    return Math.floor(minutes / $.MINUTES_IN_ONE_DAY) + "d";
-}
-
-public function timePeriodFormat(minutes as Integer, longFormat as Boolean) as String {
-    var timeString = "";
-    if (minutes > 1440) {
-        timeString = minutes / 1440;
-        timeString += longFormat ? "days" : "d";
-    } else if (minutes > 120) {
-        timeString = minutes / 60;
-        timeString += longFormat ? "hours" : "h";
-    } else {
-        timeString = minutes + "min";
-    }
-    return timeString;
 }

@@ -1,0 +1,5 @@
+# Lightweight RC source allowlist. Graph, History, Carousel, watch analysis,
+# WebDAV export, and legacy UI delegates are intentionally not compiled.
+project.manifest = manifest.xml
+base.sourcePath = source/BatteryApp.mc;source/BatteryConstants.mc;source/BatterySampleV1.mc;source/BatterySampler.mc;source/BatteryContextSampler.mc;source/TemperatureSampler.mc;source/DeviceDescriptor.mc;source/BatteryPageStore.mc;source/BatteryMetaStore.mc;source/BatteryStore.mc;source/BatteryGlanceSummaryStore.mc;source/TemperatureCacheStore.mc;source/LegacyStorageMigration.mc;source/BatteryProtocol.mc;source/BatterySyncManager.mc;source/BatteryTransport.mc;source/BatteryAckHandler.mc;source/BatteryGuesstimateGlanceView.mc;source/BatteryMinimalView.mc
+base.resourcePath = resources;resources-round-260_280

@@ -10,7 +10,7 @@ class BatteryGuesstimateDetailsView extends WatchUi.View {
 
     //! Constructor
     public function initialize() {
-        _minutes = 15;
+        _minutes = $.SAMPLE_INTERVAL_MINUTES;
         var battChangeInPercent = $.getBattChangeInPercent(1);
         if (battChangeInPercent == null) {
             _battChangeInPercent = 0.0;
