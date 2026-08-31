@@ -25,9 +25,41 @@ class BatteryApp extends Application.AppBase {
     }
 
     public function onStart(state as Dictionary?) as Void {
+        // Background.registerForPhoneAppMessageEvent() wakes the service when
+        // the app is not active. While the widget/glance is running, messages
+        // must also be drained through the foreground mailbox callback.
+        if (Communications has :registerForPhoneAppMessages) {
+            Communications.registerForPhoneAppMessages(method(:onPhoneAppMessage));
+        }
     }
 
     public function onStop(state as Dictionary?) as Void {
+        if (Communications has :registerForPhoneAppMessages) {
+            Communications.registerForPhoneAppMessages(null);
+        }
+    }
+
+    public function onPhoneAppMessage(
+        message as Communications.PhoneAppMessage
+    ) as Void {
+        try {
+            var handler = new BatteryAckHandler();
+            var accepted = handler.handle(message.data);
+            var manager = new BatterySyncManager();
+            if (accepted && !handler.wasDescriptorRequest()) {
+                var stats = System.getSystemStats();
+                manager.sync(
+                    true,
+                    Math.round(stats.battery * 100.0).toNumber(),
+                    stats.charging
+                );
+            } else if (!accepted) {
+                manager.sendStatus();
+            }
+        } catch (e) {
+            System.println("BatterySync foreground phone error " + e.getErrorMessage());
+            new BatteryMetaStore().recordError($.ERROR_INVALID_ACK);
+        }
     }
 
     public function getGlanceView() {
